@@ -5,12 +5,16 @@ from typing import List, Dict, Optional, Any
 import logging
 import uuid
 from datetime import datetime
-
-from app.services.openai_service import get_openai_service
-from app.services.conversation_storage import get_conversation_storage
-from app.services.vector_search import VectorSearchService
 import json
 from pathlib import Path
+
+from app.core.dependencies import (
+    OpenAIServiceDep,
+    ConversationStorageDep,
+    VectorSearchServiceDep,
+    SettingsDep
+)
+from app.core.exceptions import OpenAIError, StorageError, NotFoundError
 
 logger = logging.getLogger(__name__)
 
@@ -39,15 +43,18 @@ class ConversationHistoryResponse(BaseModel):
 
 
 @router.post("/chat", response_model=ChatResponse)
-async def chat(request: ChatRequest):
+async def chat(
+    request: ChatRequest,
+    openai_service: OpenAIServiceDep,
+    storage: ConversationStorageDep,
+    settings: SettingsDep
+):
     """
     会話型AIマッチング - チャットエンドポイント
 
     ユーザーとの会話を通じて求人条件を抽出し、最適な求人を提案します。
     """
     try:
-        openai_service = get_openai_service()
-        storage = get_conversation_storage()
 
         # 会話IDの生成または取得
         conversation_id = request.conversation_id or str(uuid.uuid4())
@@ -110,37 +117,47 @@ async def chat(request: ChatRequest):
 
 
 @router.get("/conversations/{user_id}", response_model=ConversationHistoryResponse)
-async def get_conversations(user_id: str):
+async def get_conversations(
+    user_id: str,
+    storage: ConversationStorageDep
+):
     """
     ユーザーの会話履歴を取得
     """
     try:
-        storage = get_conversation_storage()
         conversations = storage.get_user_conversations(user_id)
-
         return ConversationHistoryResponse(conversations=conversations)
 
+    except StorageError as e:
+        logger.error(f"Storage error getting conversations: {e}")
+        raise HTTPException(status_code=e.status_code, detail=e.message)
     except Exception as e:
         logger.error(f"Error getting conversations: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
 
 @router.delete("/conversations/{user_id}/{conversation_id}")
-async def delete_conversation(user_id: str, conversation_id: str):
+async def delete_conversation(
+    user_id: str,
+    conversation_id: str,
+    storage: ConversationStorageDep
+):
     """
     会話を削除
     """
     try:
-        storage = get_conversation_storage()
         success = storage.delete_conversation(user_id, conversation_id)
 
         if not success:
-            raise HTTPException(status_code=404, detail="Conversation not found")
+            raise NotFoundError("Conversation not found")
 
         return {"message": "Conversation deleted successfully"}
 
-    except HTTPException:
-        raise
+    except NotFoundError as e:
+        raise HTTPException(status_code=e.status_code, detail=e.message)
+    except StorageError as e:
+        logger.error(f"Storage error deleting conversation: {e}")
+        raise HTTPException(status_code=e.status_code, detail=e.message)
     except Exception as e:
         logger.error(f"Error deleting conversation: {e}")
         raise HTTPException(status_code=500, detail=str(e))
@@ -157,13 +174,16 @@ class ExtractPreferencesResponse(BaseModel):
 
 
 @router.post("/extract-preferences", response_model=ExtractPreferencesResponse)
-async def extract_preferences(request: ExtractPreferencesRequest):
+async def extract_preferences(
+    request: ExtractPreferencesRequest,
+    openai_service: OpenAIServiceDep,
+    storage: ConversationStorageDep,
+    settings: SettingsDep
+):
     """
     会話から条件を抽出し、求人を検索
     """
     try:
-        openai_service = get_openai_service()
-        storage = get_conversation_storage()
 
         # 会話履歴を読み込み
         conversation_data = storage.load_conversation(
@@ -172,7 +192,7 @@ async def extract_preferences(request: ExtractPreferencesRequest):
         )
 
         if not conversation_data:
-            raise HTTPException(status_code=404, detail="Conversation not found")
+            raise NotFoundError("Conversation not found")
 
         messages = conversation_data.get("messages", [])
 
@@ -192,8 +212,11 @@ async def extract_preferences(request: ExtractPreferencesRequest):
             recommendations=recommendations
         )
 
-    except HTTPException:
-        raise
+    except NotFoundError as e:
+        raise HTTPException(status_code=e.status_code, detail=e.message)
+    except (OpenAIError, StorageError) as e:
+        logger.error(f"Service error extracting preferences: {e}")
+        raise HTTPException(status_code=e.status_code, detail=e.message)
     except Exception as e:
         logger.error(f"Error extracting preferences: {e}")
         raise HTTPException(status_code=500, detail=str(e))
@@ -231,6 +254,8 @@ async def _search_jobs_by_preferences(
 ) -> List[Dict[str, Any]]:
     """条件に基づいて求人を検索"""
     try:
+        from app.services.vector_search import VectorSearchService
+
         # 検索クエリのエンベディングを作成
         query_embedding = openai_service.create_search_query_embedding(preferences)
 
@@ -265,6 +290,8 @@ async def _search_jobs_by_preferences(
 async def _initialize_job_embeddings(openai_service, storage):
     """求人エンベディングを初期化"""
     try:
+        from app.services.vector_search import VectorSearchService
+
         job_data_list = _load_job_data()
 
         for job in job_data_list:

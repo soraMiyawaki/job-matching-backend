@@ -1,10 +1,12 @@
 # app/services/conversation_storage.py
 import json
-import os
 from typing import List, Dict, Optional, Any
 from datetime import datetime
 import logging
 from pathlib import Path
+
+from app.core.config import Settings
+from app.core.exceptions import StorageError
 
 logger = logging.getLogger(__name__)
 
@@ -12,20 +14,23 @@ logger = logging.getLogger(__name__)
 class ConversationStorage:
     """会話履歴とエンベディングを管理するストレージ"""
 
-    def __init__(self, data_dir: str = "data"):
+    def __init__(self, settings: Settings):
         """
         Args:
-            data_dir: データディレクトリのパス
+            settings: アプリケーション設定
         """
-        self.data_dir = Path(data_dir)
-        self.conversations_dir = self.data_dir / "conversations"
-        self.embeddings_dir = self.data_dir / "embeddings"
+        self.data_dir = Path(settings.data_directory)
+        self.conversations_dir = Path(settings.conversations_directory)
+        self.embeddings_dir = Path(settings.embeddings_directory)
         self.user_profiles_dir = self.data_dir / "user_profiles"
 
         # ディレクトリを作成
-        self.conversations_dir.mkdir(parents=True, exist_ok=True)
-        self.embeddings_dir.mkdir(parents=True, exist_ok=True)
-        self.user_profiles_dir.mkdir(parents=True, exist_ok=True)
+        try:
+            self.conversations_dir.mkdir(parents=True, exist_ok=True)
+            self.embeddings_dir.mkdir(parents=True, exist_ok=True)
+            self.user_profiles_dir.mkdir(parents=True, exist_ok=True)
+        except Exception as e:
+            raise StorageError(f"Failed to create storage directories: {str(e)}")
 
     def save_conversation(
         self,
@@ -281,13 +286,20 @@ class ConversationStorage:
             return None
 
 
-# シングルトンインスタンス
+# 後方互換性のための非推奨関数（依存性注入を使用することを推奨）
 _conversation_storage = None
 
 
 def get_conversation_storage() -> ConversationStorage:
-    """ConversationStorageのシングルトンインスタンスを取得"""
+    """
+    ConversationStorageのシングルトンインスタンスを取得
+
+    注意: この関数は非推奨です。代わりにFastAPIの依存性注入を使用してください。
+    app.core.dependencies.get_conversation_storage を使用することを推奨します。
+    """
     global _conversation_storage
     if _conversation_storage is None:
-        _conversation_storage = ConversationStorage()
+        from app.core.config import get_settings
+        settings = get_settings()
+        _conversation_storage = ConversationStorage(settings)
     return _conversation_storage

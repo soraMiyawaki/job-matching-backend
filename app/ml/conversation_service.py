@@ -4,8 +4,9 @@ OpenAI APIを使用した会話型AIマッチングサービス
 """
 from typing import List, Dict, Optional
 import logging
-import os
-from openai import OpenAI
+
+from app.services.openai_service import OpenAIService
+from app.core.exceptions import OpenAIError
 
 logger = logging.getLogger(__name__)
 
@@ -13,17 +14,14 @@ logger = logging.getLogger(__name__)
 class ConversationService:
     """会話型AIマッチングサービス"""
 
-    def __init__(self, api_key: Optional[str] = None):
+    def __init__(self, openai_service: OpenAIService):
         """
         Args:
-            api_key: OpenAI API Key (環境変数から取得する場合はNone)
+            openai_service: OpenAIサービスインスタンス
         """
-        self.api_key = api_key or os.getenv("OPENAI_API_KEY")
-        if not self.api_key:
-            logger.warning("OpenAI API key not found")
-            self.client = None
-        else:
-            self.client = OpenAI(api_key=self.api_key)
+        self.openai_service = openai_service
+        self.client = openai_service.client
+        self.chat_model = openai_service.chat_model
 
     def generate_job_analysis(
         self,
@@ -51,7 +49,7 @@ class ConversationService:
 
             # OpenAI API呼び出し
             response = self.client.chat.completions.create(
-                model="gpt-4o-mini",
+                model=self.chat_model,
                 messages=[
                     {
                         "role": "system",
@@ -104,7 +102,7 @@ class ConversationService:
 
             # OpenAI API呼び出し
             response = self.client.chat.completions.create(
-                model="gpt-4o-mini",
+                model=self.chat_model,
                 messages=messages,
                 max_tokens=800,
                 temperature=0.8
@@ -225,7 +223,7 @@ class ConversationService:
 """
 
 
-# グローバルインスタンス
+# 後方互換性のための非推奨関数（依存性注入を使用することを推奨）
 _conversation_service: Optional[ConversationService] = None
 
 
@@ -233,10 +231,15 @@ def get_conversation_service() -> ConversationService:
     """
     会話サービスのシングルトンインスタンスを取得
 
+    注意: この関数は非推奨です。代わりにFastAPIの依存性注入を使用してください。
+    app.core.dependencies.get_conversation_service_dependency を使用することを推奨します。
+
     Returns:
         ConversationServiceインスタンス
     """
     global _conversation_service
     if _conversation_service is None:
-        _conversation_service = ConversationService()
+        from app.services.openai_service import get_openai_service
+        openai_service = get_openai_service()
+        _conversation_service = ConversationService(openai_service)
     return _conversation_service

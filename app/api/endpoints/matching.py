@@ -17,27 +17,29 @@ from app.schemas.matching import (
     MatchingExplanationRequest,
     MatchingExplanationResponse,
 )
-from app.ml import get_matching_service
-from app.ml.conversation_service import get_conversation_service
+from app.core.dependencies import MatchingServiceDep, ConversationServiceDep
+from app.core.exceptions import MatchingError, OpenAIError
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
 
 
 @router.post("/recommend", response_model=MatchingResponse)
-async def recommend_jobs(request: MatchingRequest):
+async def recommend_jobs(
+    request: MatchingRequest,
+    matching_service: MatchingServiceDep
+):
     """
     求職者プロフィールに基づいて求人をレコメンド
 
     Args:
         request: マッチングリクエスト（求職者プロフィール、求人リスト、top_k）
+        matching_service: マッチングサービス（依存性注入）
 
     Returns:
         マッチング結果（レコメンデーションリスト、統計情報）
     """
     try:
-        # マッチングサービスを取得
-        matching_service = get_matching_service()
 
         # 求職者プロフィールと求人リストを辞書形式に変換
         seeker_profile = request.seeker_profile.model_dump()
@@ -72,8 +74,11 @@ async def recommend_jobs(request: MatchingRequest):
 
         return response
 
+    except MatchingError as e:
+        logger.error(f"Matching error in recommend_jobs: {str(e)}", exc_info=True)
+        raise HTTPException(status_code=e.status_code, detail=e.message)
     except Exception as e:
-        logger.error(f"Error in recommend_jobs: {str(e)}", exc_info=True)
+        logger.error(f"Unexpected error in recommend_jobs: {str(e)}", exc_info=True)
         raise HTTPException(
             status_code=500,
             detail=f"マッチング処理中にエラーが発生しました: {str(e)}"
@@ -81,15 +86,17 @@ async def recommend_jobs(request: MatchingRequest):
 
 
 @router.get("/health")
-async def health_check():
+async def health_check(matching_service: MatchingServiceDep):
     """
     マッチングサービスのヘルスチェック
+
+    Args:
+        matching_service: マッチングサービス（依存性注入）
 
     Returns:
         サービスのステータス
     """
     try:
-        matching_service = get_matching_service()
         return {
             "status": "healthy",
             "service": "matching",
@@ -104,18 +111,21 @@ async def health_check():
 
 
 @router.post("/analyze-job", response_model=JobAnalysisResponse)
-async def analyze_job(request: JobAnalysisRequest):
+async def analyze_job(
+    request: JobAnalysisRequest,
+    conversation_service: ConversationServiceDep
+):
     """
     OpenAI APIを使って求人とのマッチング分析を生成
 
     Args:
         request: 求人分析リクエスト
+        conversation_service: 会話サービス（依存性注入）
 
     Returns:
         AI生成の分析テキスト
     """
     try:
-        conversation_service = get_conversation_service()
         seeker_profile = request.seeker_profile.model_dump()
         job_data = request.job.model_dump()
 
@@ -127,6 +137,9 @@ async def analyze_job(request: JobAnalysisRequest):
 
         return JobAnalysisResponse(analysis=analysis)
 
+    except OpenAIError as e:
+        logger.error(f"OpenAI error in analyze_job: {str(e)}", exc_info=True)
+        raise HTTPException(status_code=e.status_code, detail=e.message)
     except Exception as e:
         logger.error(f"Error in analyze_job: {str(e)}", exc_info=True)
         raise HTTPException(
@@ -136,18 +149,21 @@ async def analyze_job(request: JobAnalysisRequest):
 
 
 @router.post("/career-chat", response_model=CareerChatResponse)
-async def career_chat(request: CareerChatRequest):
+async def career_chat(
+    request: CareerChatRequest,
+    conversation_service: ConversationServiceDep
+):
     """
     キャリアに関する会話
 
     Args:
         request: キャリア相談リクエスト
+        conversation_service: 会話サービス（依存性注入）
 
     Returns:
         AIの返答
     """
     try:
-        conversation_service = get_conversation_service()
         seeker_profile = request.seeker_profile.model_dump()
         conversation_history = [
             {"role": msg.role, "content": msg.content}
@@ -162,6 +178,9 @@ async def career_chat(request: CareerChatRequest):
 
         return CareerChatResponse(reply=reply)
 
+    except OpenAIError as e:
+        logger.error(f"OpenAI error in career_chat: {str(e)}", exc_info=True)
+        raise HTTPException(status_code=e.status_code, detail=e.message)
     except Exception as e:
         logger.error(f"Error in career_chat: {str(e)}", exc_info=True)
         raise HTTPException(
@@ -171,18 +190,21 @@ async def career_chat(request: CareerChatRequest):
 
 
 @router.post("/explain-matching", response_model=MatchingExplanationResponse)
-async def explain_matching(request: MatchingExplanationRequest):
+async def explain_matching(
+    request: MatchingExplanationRequest,
+    conversation_service: ConversationServiceDep
+):
     """
     マッチング結果全体の説明を生成
 
     Args:
         request: マッチング説明リクエスト
+        conversation_service: 会話サービス（依存性注入）
 
     Returns:
         AI生成の説明テキスト
     """
     try:
-        conversation_service = get_conversation_service()
         seeker_profile = request.seeker_profile.model_dump()
         recommendations = [
             {
@@ -199,6 +221,9 @@ async def explain_matching(request: MatchingExplanationRequest):
 
         return MatchingExplanationResponse(explanation=explanation)
 
+    except OpenAIError as e:
+        logger.error(f"OpenAI error in explain_matching: {str(e)}", exc_info=True)
+        raise HTTPException(status_code=e.status_code, detail=e.message)
     except Exception as e:
         logger.error(f"Error in explain_matching: {str(e)}", exc_info=True)
         raise HTTPException(

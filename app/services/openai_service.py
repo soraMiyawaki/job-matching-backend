@@ -1,23 +1,30 @@
 # app/services/openai_service.py
-import os
 import logging
 from typing import List, Dict, Any, Optional
 from openai import OpenAI
 import json
 
+from app.core.config import Settings
+from app.core.exceptions import OpenAIError
+
 logger = logging.getLogger(__name__)
+
 
 class OpenAIService:
     """OpenAI API統合サービス"""
 
-    def __init__(self):
-        api_key = os.getenv("OPENAI_API_KEY")
-        if not api_key:
-            raise ValueError("OPENAI_API_KEY environment variable is not set")
+    def __init__(self, settings: Settings):
+        """
+        Args:
+            settings: アプリケーション設定
+        """
+        if not settings.openai_api_key:
+            raise OpenAIError("OPENAI_API_KEY is not configured")
 
-        self.client = OpenAI(api_key=api_key)
-        self.embedding_model = "text-embedding-3-small"
-        self.chat_model = "gpt-4o-mini"
+        self.client = OpenAI(api_key=settings.openai_api_key)
+        self.embedding_model = settings.openai_embedding_model
+        self.chat_model = settings.openai_chat_model
+        self.embedding_dimension = settings.openai_embedding_dimension
 
     def create_embedding(self, text: str) -> List[float]:
         """
@@ -33,7 +40,7 @@ class OpenAIService:
             # 空のテキストをチェック
             if not text or not text.strip():
                 logger.warning("Empty text provided for embedding")
-                return [0.0] * 1536
+                return [0.0] * self.embedding_dimension
 
             response = self.client.embeddings.create(
                 model=self.embedding_model,
@@ -47,7 +54,7 @@ class OpenAIService:
 
         except Exception as e:
             logger.error(f"Error creating embedding: {e}")
-            raise
+            raise OpenAIError(f"Failed to create embedding: {str(e)}", details={"text": text[:100]})
 
     def create_embeddings_batch(self, texts: List[str]) -> List[List[float]]:
         """
@@ -277,12 +284,20 @@ class OpenAIService:
             raise
 
 
-# シングルトンインスタンス
+# 後方互換性のための非推奨関数（依存性注入を使用することを推奨）
 _openai_service = None
 
+
 def get_openai_service() -> OpenAIService:
-    """OpenAIServiceのシングルトンインスタンスを取得"""
+    """
+    OpenAIServiceのシングルトンインスタンスを取得
+
+    注意: この関数は非推奨です。代わりにFastAPIの依存性注入を使用してください。
+    app.core.dependencies.get_openai_service を使用することを推奨します。
+    """
     global _openai_service
     if _openai_service is None:
-        _openai_service = OpenAIService()
+        from app.core.config import get_settings
+        settings = get_settings()
+        _openai_service = OpenAIService(settings)
     return _openai_service
