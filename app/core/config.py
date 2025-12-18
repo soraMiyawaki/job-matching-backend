@@ -4,7 +4,7 @@
 Pydantic Settingsを使用して環境変数から設定を読み込む
 """
 from typing import List
-from pydantic import Field
+from pydantic import AliasChoices, Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -16,23 +16,17 @@ class Settings(BaseSettings):
     app_version: str = "1.0.0"
     app_description: str = "AI求人マッチングシステムのバックエンドAPI"
     debug: bool = False
+    env: str = Field(default="local", description="Deployment environment name")
 
     # サーバー設定
-    host: str = "127.0.0.1"
-    port: int = 8888
+    host: str = "0.0.0.0"
+    port: int = 8000
 
     # CORS設定
-    cors_origins: List[str] = Field(
-        default=[
-            "http://localhost:5173",
-            "http://localhost:5174",
-            "http://localhost:5175",
-            "http://localhost:5176",
-            "http://localhost:5177",
-            "http://localhost:5178",
-            "http://localhost:5179",
-            "http://localhost:5180",
-        ]
+    cors_origins: str = Field(
+        default="http://localhost:5173,http://localhost:5174,http://localhost:5175",
+        validation_alias=AliasChoices("ALLOWED_ORIGINS", "CORS_ORIGINS"),
+        description="Comma separated allowed origins"
     )
     cors_credentials: bool = True
     cors_methods: List[str] = Field(default=["*"])

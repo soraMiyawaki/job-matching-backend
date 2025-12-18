@@ -101,7 +101,8 @@ uvicorn main:app --host 127.0.0.1 --port 8888 --reload
 
 ### ヘルスチェック
 - `GET /` - ルート情報
-- `GET /health` - ヘルスチェック
+- `GET /health` - アプリケーションヘルス
+- `GET /health/db` - DB疎通チェック（DATABASE_URLに対してSELECT 1）
 
 ### マッチング API
 - `POST /api/matching/recommend` - 求人レコメンド
@@ -184,10 +185,13 @@ pytest --cov=app tests/
 主要な環境変数:
 
 - `OPENAI_API_KEY` (必須): OpenAI API Key
+- `ALLOWED_ORIGINS`: CORS許可オリジン（カンマ区切り、例: `http://localhost:5173`）
 - `DEBUG`: デバッグモード (デフォルト: False)
 - `LOG_LEVEL`: ログレベル (デフォルト: INFO)
-- `HOST`: サーバーホスト (デフォルト: 127.0.0.1)
-- `PORT`: サーバーポート (デフォルト: 8888)
+- `HOST`: サーバーホスト (デフォルト: 0.0.0.0)
+- `PORT`: サーバーポート (デフォルト: 8000。Azureでは自動で割り当てられるためPORTをそのまま使用)
+- `DATABASE_URL`: DB接続文字列（Azure PostgreSQLは`sslmode=require`推奨）
+- `ENV`: 環境名（例: local, dev, prod）
 
 詳細は`.env.example`を参照してください。
 
@@ -213,6 +217,21 @@ ModuleNotFoundError: No module named 'app.core'
 4. 非同期タスク処理 (Celery)
 5. API レート制限
 6. OpenAPI/Swaggerドキュメントの強化
+
+## Azure App Service デプロイ
+
+- GitHub Actions: `.github/workflows/azure-webapp.yml` で main ブランチ push 時に自動デプロイ
+- App Service 設定
+  - Startup Command: `python main.py`
+  - アプリ設定（App Settings）: `OPENAI_API_KEY`, `DATABASE_URL`, `ALLOWED_ORIGINS`, `ENV`, `LOG_LEVEL`, （必要に応じて）`DEBUG`
+  - PORT は App Service が注入する値を使用（コード側で `PORT` 環境変数を参照）
+- DB 接続 (Azure PostgreSQL Flexible Server)
+  - `DATABASE_URL` に `sslmode=require` を付与
+  - App Service のアウトバウンド IP を DB ファイアウォールで許可
+- よくあるエラー
+  - PORT: App Service で固定ポートを指定しない（環境変数 PORT を使用）
+  - CORS: フロントエンドのドメインを `ALLOWED_ORIGINS` に追加
+  - DB: sslmode 未設定やファイアウォール未許可で接続失敗
 
 ## ライセンス
 

@@ -11,7 +11,9 @@ from dotenv import load_dotenv
 from app.core.config import get_settings
 from app.core.logging import setup_logging, get_logger
 from app.core.exceptions import JobMatchingException
-from app.api.endpoints import matching, conversation
+from app.api.endpoints import matching, conversation, employer, auth, jobs, applications, scouts
+from app.db.session import healthcheck
+from sqlalchemy.exc import SQLAlchemyError
 
 # 環境変数を読み込む
 load_dotenv()
@@ -57,9 +59,14 @@ def create_application() -> FastAPI:
     )
 
     # CORS設定
+    allowed_origins = [
+        origin.strip()
+        for origin in settings.cors_origins.split(",")
+        if origin.strip()
+    ]
     app.add_middleware(
         CORSMiddleware,
-        allow_origins=settings.cors_origins,
+        allow_origins=allowed_origins,
         allow_credentials=settings.cors_credentials,
         allow_methods=settings.cors_methods,
         allow_headers=settings.cors_headers,
@@ -102,16 +109,53 @@ def create_application() -> FastAPI:
         )
 
     # ルーター登録
+    # 認証
+    app.include_router(
+        auth.router,
+        prefix="/api/auth",
+        tags=["auth"]
+    )
+
+    # 求人
+    app.include_router(
+        jobs.router,
+        prefix="/api/jobs",
+        tags=["jobs"]
+    )
+
+    # 応募管理
+    app.include_router(
+        applications.router,
+        prefix="/api/applications",
+        tags=["applications"]
+    )
+
+    # スカウト
+    app.include_router(
+        scouts.router,
+        prefix="/api/scouts",
+        tags=["scouts"]
+    )
+
+    # AIマッチング
     app.include_router(
         matching.router,
         prefix="/api/matching",
         tags=["matching"]
     )
 
+    # 会話型AI
     app.include_router(
         conversation.router,
         prefix="/api/conversation",
         tags=["conversation"]
+    )
+
+    # 企業向けAPI
+    app.include_router(
+        employer.router,
+        prefix="/api/employers",
+        tags=["employer"]
     )
 
     # ヘルスチェックエンドポイント
@@ -133,6 +177,33 @@ def create_application() -> FastAPI:
             "version": settings.app_version
         }
 
+    @app.get("/health/db", tags=["health"])
+    async def health_db():
+        """データベース疎通チェック"""
+        try:
+            healthcheck()
+            return {"status": "healthy", "database": "reachable"}
+        except SQLAlchemyError as exc:
+            logger.error("Database health check failed", exc_info=True)
+            return JSONResponse(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                content={
+                    "status": "unhealthy",
+                    "database": "unreachable",
+                    "message": str(exc) if settings.debug else "Database connection failed",
+                },
+            )
+        except Exception as exc:
+            logger.error("Unexpected error during database health check", exc_info=True)
+            return JSONResponse(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                content={
+                    "status": "unhealthy",
+                    "database": "unreachable",
+                    "message": str(exc) if settings.debug else "Database connection failed",
+                },
+            )
+
     logger.info(f"Application created successfully: {settings.app_name}")
     return app
 
@@ -142,12 +213,13 @@ app = create_application()
 
 
 if __name__ == "__main__":
+    import os
     import uvicorn
     settings = get_settings()
 
     uvicorn.run(
         "main:app",
-        host=settings.host,
-        port=settings.port,
+        host="0.0.0.0",
+        port=int(os.environ.get("PORT", settings.port)),
         reload=settings.debug
     )

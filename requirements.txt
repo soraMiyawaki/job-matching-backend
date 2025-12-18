@@ -8,6 +8,7 @@ sqlalchemy==2.0.36
 alembic==1.14.0
 passlib[bcrypt]==1.7.4
 python-jose[cryptography]==3.3.0
+psycopg[binary]==3.2.3
 
 # ML/AI packages
 sentence-transformers==3.3.1
