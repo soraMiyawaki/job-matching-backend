@@ -1,13 +1,14 @@
 """
-Database engine management.
-Provides a shared SQLAlchemy engine and simple health check utility.
+Database engine and session management.
+Provides FastAPI dependencies plus a health check helper.
 """
 from functools import lru_cache
-from typing import Dict
+from typing import Dict, Generator
 
 from sqlalchemy import create_engine, text
 from sqlalchemy.engine import Engine
 from sqlalchemy.exc import SQLAlchemyError
+from sqlalchemy.orm import Session, sessionmaker
 
 from app.core.config import get_settings
 
@@ -29,7 +30,22 @@ def get_engine() -> Engine:
         database_url,
         connect_args=connect_args,
         pool_pre_ping=True,
+        echo=settings.debug,
     )
+
+
+SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=get_engine())
+
+
+def get_db() -> Generator[Session, None, None]:
+    """
+    Yield a database session for FastAPI dependencies.
+    """
+    db = SessionLocal()
+    try:
+        yield db
+    finally:
+        db.close()
 
 
 def healthcheck() -> Dict[str, str]:
